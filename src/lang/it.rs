@@ -33,16 +33,15 @@ impl Italian {
             num = -num;
         }
 
+        let mut parts_data = Vec::new(); // (index, value, string_representation)
         let parts = self.split_thousands(num);
-        let mut high_parts = Vec::new(); // Millions and above
-        let mut low_part = String::new(); // Thousands and units
 
         for (i, &triplet) in parts.iter().enumerate().rev() {
             if triplet == 0 {
                 continue;
             }
 
-            if i >= 2 {
+            let s = if i >= 2 {
                 // Millions and above
                  let suffix = match i {
                     2 => if triplet == 1 { "un milione" } else { "milioni" },
@@ -54,38 +53,57 @@ impl Italian {
                 };
                 
                 if triplet == 1 {
-                    high_parts.push(String::from(suffix));
+                    String::from(suffix)
                 } else {
                     let w = self.triplet_to_words(triplet)?;
-                    high_parts.push(format!("{} {}", w, suffix));
+                    format!("{} {}", w, suffix)
                 }
             } else if i == 1 {
                 // Thousands
                 if triplet == 1 {
-                    low_part.push_str("mille");
+                    String::from("mille")
                 } else {
                     let mut w = self.triplet_to_words(triplet)?;
-                    // Replace accented é with e if present at the end (for ventitré -> ventitremila)
-                    if w.ends_with("tré") {
+                     if w.ends_with("tré") {
                         w.pop();
                         w.push('e');
                     }
-                    low_part.push_str(&w);
-                    low_part.push_str("mila");
+                    format!("{}mila", w)
                 }
             } else {
                 // Units
-                let w = self.triplet_to_words(triplet)?;
-                low_part.push_str(&w);
-            }
-        }
-        
-        let mut result_parts = high_parts;
-        if !low_part.is_empty() {
-             result_parts.push(low_part);
+                self.triplet_to_words(triplet)?
+            };
+            
+            parts_data.push((i, triplet, s));
         }
 
-        Ok(words + &result_parts.join(" "))
+        let mut result = String::new();
+        for (idx, (scale_idx, val, text)) in parts_data.iter().enumerate() {
+            if idx > 0 {
+                // Determine separator between previous and current
+                let (prev_scale, param_val) = (parts_data[idx-1].0, *val);
+                
+                let separator = if prev_scale >= 2 {
+                    // Millions/Billions -> always " e "
+                    " e "
+                } else if prev_scale == 1 {
+                    // Thousands -> check if next is exact hundreds
+                    // 100, 200, ... 900.
+                    if param_val % 100 == 0 {
+                         "" // fused
+                    } else {
+                        " e "
+                    }
+                } else {
+                    " " // Should not happen as we go high to low
+                };
+                result.push_str(separator);
+            }
+            result.push_str(text);
+        }
+
+        Ok(words + &result)
     }
 
     fn triplet_to_words(&self, num: u64) -> Result<String, Num2Err> {
@@ -109,10 +127,20 @@ impl Italian {
         if t == 0 && u == 0 {
             return Ok(words);
         }
+        
+        // Separator between hundreds and tens/units
+        if h > 0 {
+            if t == 8 {
+                 // centottanta (drop o, no " e ")
+                 words.pop();
+            } else {
+                // cento e ...
+                words.push_str(" e ");
+            }
+        }
 
         let mut tens_part = String::new();
         
-        // Let's implement tens logic first
         if t < 2 {
             if t == 0 {
                 tens_part.push_str(units[u]);
@@ -121,7 +149,6 @@ impl Italian {
             }
         } else {
             let mut ten_word = String::from(tens[t]);
-             // Drop vowel of tens if unit is 1 or 8
             if u == 1 || u == 8 {
                  ten_word.pop(); 
             }
@@ -133,14 +160,6 @@ impl Italian {
                  } else {
                      tens_part.push_str(units[u]);
                  }
-            }
-        }
-        
-        if h > 0 {
-            // Check for hundreds vowel drop.
-            if t == 8 {
-                // cent + ottanta -> centottanta
-                words.pop(); // remove 'o' from cento
             }
         }
         
@@ -400,11 +419,27 @@ mod tests {
         );
         assert_eq!(
             Num2Words::new(101).lang(Lang::Italian).cardinal().to_words(),
-            Ok(String::from("centouno"))
+            Ok(String::from("cento e uno"))
         );
         assert_eq!(
+            Num2Words::new(108).lang(Lang::Italian).cardinal().to_words(),
+            Ok(String::from("cento e otto"))
+        );
+         assert_eq!(
+            Num2Words::new(180).lang(Lang::Italian).cardinal().to_words(),
+            Ok(String::from("centottanta"))
+        );
+        assert_eq!(
+            Num2Words::new(1001).lang(Lang::Italian).cardinal().to_words(),
+            Ok(String::from("mille e uno"))
+        );
+        assert_eq!(
+            Num2Words::new(1200).lang(Lang::Italian).cardinal().to_words(),
+            Ok(String::from("milleduecento"))
+        );
+         assert_eq!(
             Num2Words::new(123456).lang(Lang::Italian).cardinal().to_words(),
-            Ok(String::from("centoventitremilaquattrocentocinquantasei"))
+            Ok(String::from("cento e ventitremila e quattrocento e cinquantasei"))
         );
     }
     
